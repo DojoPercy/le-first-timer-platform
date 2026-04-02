@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect } from "react";
-import { useDashboardStore } from "@/lib/store/dashboard-store";
+import Link from "next/link";
 import { StatsCard } from "@/components/stats-card";
+import { useDashboardStore } from "@/lib/store/dashboard-store";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MessageSquare, FileText, Users, TrendingUp } from "lucide-react";
@@ -325,6 +325,49 @@ export default function AdminDashboardPage() {
             Communication Hub
           </Link>
         </div>
+      </section>
+
+      {/* Follow-ups Summary Preview */}
+      <section className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">Follow-ups Monitoring</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Track caller progress and weekly follow-up performance.
+            </p>
+          </div>
+          <Link
+            href="/admin/followups-summary"
+            className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+          >
+            View Full Summary
+          </Link>
+        </div>
+        
+        <Card>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="text-center">
+                <p className="text-2xl font-bold text-blue-600">{stats.assignedFirstTimers}</p>
+                <p className="text-xs text-muted-foreground">Assigned</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-green-600">{stats.followedUpThisWeekCount}</p>
+                <p className="text-xs text-muted-foreground">Followed Up</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-yellow-600">{stats.pendingFollowupThisWeekCount}</p>
+                <p className="text-xs text-muted-foreground">Pending</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-teal-600">
+                  {stats.assignedFirstTimers > 0 ? Math.round((stats.followedUpThisWeekCount / stats.assignedFirstTimers) * 100) : 0}%
+                </p>
+                <p className="text-xs text-muted-foreground">Completion</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </section>
     </div>
   );
