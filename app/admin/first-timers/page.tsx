@@ -7,8 +7,10 @@ import { PaginationInfo } from "@/components/_reusable_components/pagination-inf
 import { useCallerStore } from "@/lib/store/caller-store";
 import { useFirstTimerStore } from "@/lib/store/first-timer-store";
 import { isInCurrentWeek } from "@/lib/utils/followup-week-check";
+import { getISOWeekNumber, getWeekBounds } from "@/lib/utils/report-helpers";
 
 const ITEMS_PER_PAGE = 10;
+
 type FirstTimerView =
   | "all"
   | "unassigned"
@@ -25,12 +27,17 @@ function getOutcomeLabel(status?: string | null) {
   return "Follow-up Pending";
 }
 
+function getOperationalDate(firstTimer: { form_submitted_at?: string | null; created_at: string }) {
+  return new Date(firstTimer.form_submitted_at || firstTimer.created_at);
+}
+
 export default function AdminFirstTimersPage() {
   const { firstTimers, isLoading, fetchFirstTimers, assignFirstTimer } =
     useFirstTimerStore();
   const { callers, fetchCallers } = useCallerStore();
   const [query, setQuery] = useState("");
   const [view, setView] = useState<FirstTimerView>("all");
+  const [selectedWeekKey, setSelectedWeekKey] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [savingId, setSavingId] = useState<string | null>(null);
 
@@ -39,42 +46,102 @@ export default function AdminFirstTimersPage() {
     void fetchCallers();
   }, [fetchCallers, fetchFirstTimers]);
 
+  const callerMap = useMemo(
+    () => new Map(callers.map((caller) => [caller.id, caller.name])),
+    [callers]
+  );
+
+  const weekOptions = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        label: string;
+        weekStart: Date;
+        weekEnd: Date;
+      }
+    >();
+
+    for (const item of firstTimers) {
+      const createdAt = getOperationalDate(item);
+      const { weekStart, weekEnd } = getWeekBounds(createdAt);
+      const weekNumber = getISOWeekNumber(createdAt);
+      const key = `${weekStart.getFullYear()}-W${weekNumber}`;
+
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          label: `${weekStart.getFullYear()} Week ${weekNumber}`,
+          weekStart,
+          weekEnd,
+        });
+      }
+    }
+
+    return Array.from(groups.values()).sort(
+      (a, b) => b.weekStart.getTime() - a.weekStart.getTime()
+    );
+  }, [firstTimers]);
+
+  useEffect(() => {
+    if (!selectedWeekKey && weekOptions.length > 0) {
+      setSelectedWeekKey(weekOptions[0].key);
+    }
+  }, [selectedWeekKey, weekOptions]);
+
   const filteredFirstTimers = useMemo(() => {
     const lowered = query.trim().toLowerCase();
-    const viewFiltered = firstTimers.filter((firstTimer) => {
+    const weekFiltered = firstTimers.filter((firstTimer) => {
+      if (!selectedWeekKey) return false;
+      const createdAt = getOperationalDate(firstTimer);
+      const { weekStart } = getWeekBounds(createdAt);
+      const weekNumber = getISOWeekNumber(createdAt);
+      return `${weekStart.getFullYear()}-W${weekNumber}` === selectedWeekKey;
+    });
+
+    const viewFiltered = weekFiltered.filter((firstTimer) => {
       if (view === "unassigned") return !firstTimer.assigned_caller_id;
-      if (view === "needs_followup")
+      if (view === "needs_followup") {
         return !!firstTimer.assigned_caller_id && !isInCurrentWeek(firstTimer.last_followup_at || "");
-      if (view === "followed_this_week")
+      }
+      if (view === "followed_this_week") {
         return !!firstTimer.last_followup_at && isInCurrentWeek(firstTimer.last_followup_at);
-      if (view === "fully_joined")
-        return firstTimer.followup_outcome_status === "fully_joined";
-      if (view === "still_deciding")
-        return firstTimer.followup_outcome_status === "still_deciding";
-      if (view === "not_continuing")
-        return firstTimer.followup_outcome_status === "not_continuing";
+      }
+      if (view === "fully_joined") return firstTimer.followup_outcome_status === "fully_joined";
+      if (view === "still_deciding") return firstTimer.followup_outcome_status === "still_deciding";
+      if (view === "not_continuing") return firstTimer.followup_outcome_status === "not_continuing";
       return true;
     });
 
-    if (!lowered) return viewFiltered;
-    return viewFiltered.filter((firstTimer) =>
-      [
-        firstTimer.full_name,
-        firstTimer.contact,
-        firstTimer.place_of_residence,
-        firstTimer.invited_by,
-        firstTimer.cell_name,
-        firstTimer.visit_type,
-        getOutcomeLabel(firstTimer.followup_outcome_status),
-      ]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(lowered))
+    const searched = !lowered
+      ? viewFiltered
+      : viewFiltered.filter((firstTimer) =>
+          [
+            firstTimer.full_name,
+            firstTimer.contact,
+            firstTimer.place_of_residence,
+            firstTimer.invited_by,
+            firstTimer.cell_name,
+            firstTimer.visit_type,
+            getOutcomeLabel(firstTimer.followup_outcome_status),
+          ]
+            .filter(Boolean)
+            .some((value) => value!.toLowerCase().includes(lowered))
+        );
+
+    return searched.sort(
+      (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
     );
-  }, [firstTimers, query, view]);
+  }, [firstTimers, query, selectedWeekKey, view]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [query, view]);
+  }, [query, selectedWeekKey, view]);
+
+  const selectedWeek = useMemo(
+    () => weekOptions.find((option) => option.key === selectedWeekKey) || null,
+    [selectedWeekKey, weekOptions]
+  );
 
   const totalPages = Math.ceil(filteredFirstTimers.length / ITEMS_PER_PAGE);
   const paginatedFirstTimers = useMemo(() => {
@@ -90,6 +157,15 @@ export default function AdminFirstTimersPage() {
       setSavingId(null);
     }
   };
+
+  const callerStats = useMemo(() => {
+    return filteredFirstTimers.reduce<Record<string, number>>((acc, item) => {
+      if (!item.assigned_caller_id) return acc;
+      const callerName = callerMap.get(item.assigned_caller_id) || "Unknown Caller";
+      acc[callerName] = (acc[callerName] || 0) + 1;
+      return acc;
+    }, {});
+  }, [callerMap, filteredFirstTimers]);
 
   const handleExportCsv = () => {
     const rows = [
@@ -125,7 +201,7 @@ export default function AdminFirstTimersPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "first-timers.csv";
+    link.download = selectedWeek ? `first-timers-${selectedWeek.key}.csv` : "first-timers.csv";
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -138,7 +214,7 @@ export default function AdminFirstTimersPage() {
             First timers
           </h2>
           <p className="mt-2 text-sm text-slate-500">
-            Review incoming records and make sure each person has a caller assigned.
+            Review one week at a time, monitor assignments, and manage follow-up progress clearly.
           </p>
         </div>
 
@@ -166,13 +242,28 @@ export default function AdminFirstTimersPage() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[0.8fr_1fr_auto]">
+        <select
+          value={selectedWeekKey}
+          onChange={(event) => setSelectedWeekKey(event.target.value)}
+          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+        >
+          {weekOptions.map((week) => (
+            <option key={week.key} value={week.key}>
+              {week.label}
+            </option>
+          ))}
+        </select>
 
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search by name, contact, residence, inviter, or cell"
-          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400 lg:max-w-md"
+          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
         />
+
         <button
           type="button"
           onClick={handleExportCsv}
@@ -182,6 +273,56 @@ export default function AdminFirstTimersPage() {
           Export CSV
         </button>
       </div>
+
+      {selectedWeek ? (
+        <section className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50 px-6 py-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">{selectedWeek.label}</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                {selectedWeek.weekStart.toLocaleDateString()} to {selectedWeek.weekEnd.toLocaleDateString()}
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-white px-4 py-3 text-sm">
+                <p className="text-slate-500">First timers</p>
+                <p className="mt-1 font-semibold text-slate-900">{filteredFirstTimers.length}</p>
+              </div>
+              <div className="rounded-2xl bg-white px-4 py-3 text-sm">
+                <p className="text-slate-500">Assigned</p>
+                <p className="mt-1 font-semibold text-slate-900">
+                  {filteredFirstTimers.filter((item) => item.assigned_caller_id).length}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white px-4 py-3 text-sm">
+                <p className="text-slate-500">Unassigned</p>
+                <p className="mt-1 font-semibold text-slate-900">
+                  {filteredFirstTimers.filter((item) => !item.assigned_caller_id).length}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(callerStats)
+              .sort((a, b) => b[1] - a[1])
+              .map(([callerName, count]) => (
+                <span
+                  key={`${selectedWeek.key}-${callerName}`}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700"
+                >
+                  {callerName}: {count}
+                </span>
+              ))}
+            {Object.keys(callerStats).length === 0 ? (
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-500">
+                No callers assigned yet in this week
+              </span>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <div className="overflow-hidden rounded-3xl border border-slate-200">
         <div className="overflow-x-auto">
@@ -249,7 +390,7 @@ export default function AdminFirstTimersPage() {
                           <option key={caller.id} value={caller.id}>
                             {caller.name}
                           </option>
-                      ))}
+                        ))}
                     </select>
                   </td>
                   <td className="px-4 py-4 text-slate-600">
@@ -270,7 +411,7 @@ export default function AdminFirstTimersPage() {
               {!isLoading && paginatedFirstTimers.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
-                    No first timers found.
+                    No first timers found for the selected week.
                   </td>
                 </tr>
               ) : null}

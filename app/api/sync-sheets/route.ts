@@ -44,6 +44,33 @@ function normalizeVisitType(value: string | null | undefined) {
   return normalizeText(value).toUpperCase().replace(/\s+/g, " ");
 }
 
+function parseSheetTimestamp(value: string | null | undefined) {
+  const text = normalizeText(value);
+  if (!text) return null;
+
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString();
+  }
+
+  const match = text.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/
+  );
+  if (!match) return null;
+
+  const [, month, day, year, hour, minute, second] = match;
+  const fallback = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second || 0)
+  );
+
+  return Number.isNaN(fallback.getTime()) ? null : fallback.toISOString();
+}
+
 async function loadGoogleCredentials() {
   const jsonString =
     process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.SERVICE_ACCOUNT_JSON;
@@ -179,6 +206,7 @@ async function syncSingleBranch(
       const value = normalizeText(row[index]);
       if (!value) return;
 
+      if (header === "Timestamp") payload.form_submitted_at = parseSheetTimestamp(value) || value;
       if (header === "Email Address") payload.submitter_email = value;
       if (header === "FULL NAME") payload.full_name = value;
       if (header === "CONTACT") payload.contact = normalizeContact(value) || value;
@@ -209,6 +237,11 @@ async function syncSingleBranch(
         errors.push(error.message);
       } else {
         inserted++;
+        existingByKey.set(key, {
+          id: `inserted-${inserted}`,
+          full_name: String(payload.full_name),
+          contact: String(payload.contact || ""),
+        });
       }
       continue;
     }
@@ -223,6 +256,11 @@ async function syncSingleBranch(
       errors.push(error.message);
     } else {
       updated++;
+      existingByKey.set(key, {
+        id: existing.id,
+        full_name: String(payload.full_name),
+        contact: String(payload.contact || ""),
+      });
     }
   }
 

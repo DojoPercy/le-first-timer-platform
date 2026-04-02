@@ -228,6 +228,47 @@ export default function AdminReportsPage() {
         </section>
       </div>
 
+      <section className="rounded-3xl border border-slate-200 p-6">
+        <h3 className="text-lg font-semibold text-slate-900">Inviter performance</h3>
+        <p className="text-sm text-slate-500">
+          Which inviters are bringing people in and how many have fully joined in the selected period.
+        </p>
+
+        <div className="mt-5 overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="text-slate-500">
+              <tr>
+                <th className="pb-3 font-medium">Invited By</th>
+                <th className="pb-3 font-medium">Total Invited</th>
+                <th className="pb-3 font-medium">Fully Joined</th>
+                <th className="pb-3 font-medium">Still Deciding</th>
+                <th className="pb-3 font-medium">Pending</th>
+                <th className="pb-3 font-medium">Conversion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(globalStats?.inviterPerformance || []).map((inviter) => (
+                <tr key={inviter.inviter} className="border-t border-slate-100">
+                  <td className="py-3 font-medium text-slate-900">{inviter.inviter}</td>
+                  <td className="py-3 text-slate-600">{inviter.invitedCount}</td>
+                  <td className="py-3 text-slate-600">{inviter.fullyJoinedCount}</td>
+                  <td className="py-3 text-slate-600">{inviter.stillDecidingCount}</td>
+                  <td className="py-3 text-slate-600">{inviter.pendingCount}</td>
+                  <td className="py-3 text-slate-600">{inviter.conversionRate}%</td>
+                </tr>
+              ))}
+              {(globalStats?.inviterPerformance || []).length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-6 text-center text-slate-500">
+                    No inviter data yet for this period.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <div className="overflow-hidden rounded-3xl border border-slate-200">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">

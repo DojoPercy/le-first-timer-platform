@@ -3,7 +3,8 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { getCurrentBranchId } from "@/lib/auth/client-branch";
 import { getWeekStart, getWeekEnd } from "@/lib/utils/followup-week-check";
-import type { FirstTimer, Followup, CellStat } from "@/lib/types";
+import { buildInviterStats } from "@/lib/utils/inviter-analytics";
+import type { FirstTimer, Followup, CellStat, InviterStat } from "@/lib/types";
 
 export interface DashboardStatsData {
   totalFirstTimers: number;
@@ -20,6 +21,7 @@ export interface DashboardStatsData {
   joiningCount: number;
   visitingCount: number;
   topCells: CellStat[];
+  topInviters: InviterStat[];
   callerWeeklyPerformance: Array<{
     callerId: string;
     name: string;
@@ -55,6 +57,7 @@ const defaultStats: DashboardStatsData = {
   joiningCount: 0,
   visitingCount: 0,
   topCells: [],
+  topInviters: [],
   callerWeeklyPerformance: [],
 };
 
@@ -115,6 +118,7 @@ async function fetchDashboardStatsRequest(): Promise<DashboardStatsData> {
     .map(([cell, count]) => ({ cell, count, total: totalFirstTimers }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
+  const topInviters = buildInviterStats(firstTimers || []);
 
   // Followup stats
   const totalFollowups = followups?.length || 0;
@@ -181,6 +185,7 @@ async function fetchDashboardStatsRequest(): Promise<DashboardStatsData> {
     joiningCount,
     visitingCount,
     topCells,
+    topInviters,
     callerWeeklyPerformance,
   };
 }

@@ -76,7 +76,7 @@ export async function GET(request: Request) {
 
     const supabase = createAdminClient();
     const [firstTimersRes, followupsRes] = await Promise.all([
-      supabase.from("first_timers").select("created_at").eq("branch_id", branchId),
+      supabase.from("first_timers").select("created_at, form_submitted_at").eq("branch_id", branchId),
       supabase.from("followups").select("date").eq("branch_id", branchId),
     ]);
 
@@ -87,7 +87,10 @@ export async function GET(request: Request) {
     const bucketMap = new Map(buckets.map((bucket) => [bucket.label, bucket]));
 
     for (const item of firstTimersRes.data || []) {
-      const label = formatPeriod(new Date(item.created_at), period);
+      const label = formatPeriod(
+        new Date(item.form_submitted_at || item.created_at),
+        period
+      );
       const bucket = bucketMap.get(label);
       if (bucket) bucket.firstTimers += 1;
     }

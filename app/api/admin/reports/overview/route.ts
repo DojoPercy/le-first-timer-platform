@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentActor, isAdminLike, resolveBranchScope } from "@/lib/auth/server";
+import { buildInviterStats } from "@/lib/utils/inviter-analytics";
 
 function isInWindow(dateString: string, start: Date, end: Date) {
   const date = new Date(dateString);
   return date >= start && date <= end;
+}
+
+function getFirstTimerDate(item: { form_submitted_at?: string | null; created_at: string }) {
+  return item.form_submitted_at || item.created_at;
 }
 
 function getWindow(period: "weekly" | "monthly" | "yearly", date: Date) {
@@ -66,7 +71,7 @@ export async function GET(request: Request) {
 
     const { start, end } = getWindow(period, date);
     const firstTimers = (firstTimersRes.data || []).filter((item) =>
-      isInWindow(item.created_at, start, end)
+      isInWindow(getFirstTimerDate(item), start, end)
     );
     const followups = (followupsRes.data || []).filter((item) =>
       isInWindow(item.date, start, end)
@@ -91,11 +96,12 @@ export async function GET(request: Request) {
       globalStats: {
         totalFirstTimers: firstTimers.length,
         firstTimersInMonth: (firstTimersRes.data || []).filter((item) =>
-          isInWindow(item.created_at, monthStart, monthEnd)
+          isInWindow(getFirstTimerDate(item), monthStart, monthEnd)
         ).length,
         cellDistribution,
         totalFollowups: followups.length,
         callerPerformance,
+        inviterPerformance: buildInviterStats(firstTimers),
       },
     });
   } catch (error) {

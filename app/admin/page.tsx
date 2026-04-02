@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { useDashboardStore } from "@/lib/store/dashboard-store";
 import { StatsCard } from "@/components/stats-card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { MessageSquare, FileText, Users, TrendingUp } from "lucide-react";
 
 export default function AdminDashboardPage() {
   const {
@@ -69,6 +72,84 @@ export default function AdminDashboardPage() {
         />
       </div>
 
+      {/* New Communication Hub Section */}
+      <section className="rounded-3xl border border-slate-200 p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+              <MessageSquare className="h-5 w-5" />
+              Communication & Reports
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Send bulk SMS messages and generate department reports
+            </p>
+          </div>
+          <Link href="/admin/communication">
+            <Button className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white">
+              Open Communication Hub
+            </Button>
+          </Link>
+        </div>
+        
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="border-slate-100">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-blue-100 p-2">
+                  <MessageSquare className="h-4 w-4 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-900">Bulk SMS</p>
+                  <p className="text-xs text-slate-500">Send messages</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-slate-100">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-green-100 p-2">
+                  <FileText className="h-4 w-4 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-900">PDF Reports</p>
+                  <p className="text-xs text-slate-500">Generate reports</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-slate-100">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-orange-100 p-2">
+                  <Users className="h-4 w-4 text-orange-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-900">Templates</p>
+                  <p className="text-xs text-slate-500">Message templates</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-slate-100">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-purple-100 p-2">
+                  <TrendingUp className="h-4 w-4 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-900">Analytics</p>
+                  <p className="text-xs text-slate-500">Track performance</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-3xl border border-slate-200 p-6">
           <h3 className="text-lg font-semibold text-slate-900">Top cells</h3>
@@ -130,6 +211,50 @@ export default function AdminDashboardPage() {
           </div>
         </section>
       </div>
+
+      <section className="rounded-3xl border border-slate-200 p-6">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">Inviter analytics</h3>
+            <p className="text-sm text-slate-500">
+              Tracks who is bringing first timers and how many have fully joined after follow-up.
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="text-slate-500">
+              <tr>
+                <th className="pb-3 font-medium">Invited By</th>
+                <th className="pb-3 font-medium">Total Invited</th>
+                <th className="pb-3 font-medium">Fully Joined</th>
+                <th className="pb-3 font-medium">Still Deciding</th>
+                <th className="pb-3 font-medium">Pending</th>
+                <th className="pb-3 font-medium">Conversion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.topInviters.map((inviter) => (
+                <tr key={inviter.inviter} className="border-t border-slate-100">
+                  <td className="py-3 font-medium text-slate-900">{inviter.inviter}</td>
+                  <td className="py-3 text-slate-600">{inviter.invitedCount}</td>
+                  <td className="py-3 text-slate-600">{inviter.fullyJoinedCount}</td>
+                  <td className="py-3 text-slate-600">{inviter.stillDecidingCount}</td>
+                  <td className="py-3 text-slate-600">{inviter.pendingCount}</td>
+                  <td className="py-3 text-slate-600">{inviter.conversionRate}%</td>
+                </tr>
+              ))}
+              {!isLoading && stats.topInviters.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-6 text-center text-slate-500">
+                    No inviter data available yet.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="rounded-3xl border border-slate-200 p-6">
         <h3 className="text-lg font-semibold text-slate-900">Caller weekly accountability</h3>
@@ -194,10 +319,10 @@ export default function AdminDashboardPage() {
             Open reports
           </Link>
           <Link
-            href="/admin/users"
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700"
+            href="/admin/communication"
+            className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700"
           >
-            Manage users
+            Communication Hub
           </Link>
         </div>
       </section>

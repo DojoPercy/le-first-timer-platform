@@ -44,6 +44,7 @@ export interface BranchIntegration {
 export interface FirstTimer {
   id: string;
   full_name: string;
+  form_submitted_at?: string | null;
   submitter_email?: string;
   contact?: string;
   place_of_residence?: string;
@@ -80,6 +81,16 @@ export interface CellStat {
   cell: string;
   count: number;
   total: number;
+}
+
+export interface InviterStat {
+  inviter: string;
+  invitedCount: number;
+  fullyJoinedCount: number;
+  stillDecidingCount: number;
+  notContinuingCount: number;
+  pendingCount: number;
+  conversionRate: number;
 }
 
 export type UserRole = "super_admin" | "admin" | "caller" | null;

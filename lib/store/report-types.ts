@@ -62,6 +62,15 @@ export interface GlobalReportStats {
   cellDistribution: Record<string, number>;
   totalFollowups: number;
   callerPerformance: { callerId: string; name: string; followups: number }[];
+  inviterPerformance: {
+    inviter: string;
+    invitedCount: number;
+    fullyJoinedCount: number;
+    stillDecidingCount: number;
+    notContinuingCount: number;
+    pendingCount: number;
+    conversionRate: number;
+  }[];
   trendData?: { period: string; firstTimers: number; followups: number }[];
 }
 

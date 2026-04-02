@@ -41,7 +41,7 @@ export default function FirstTimerDetailPage() {
     const entries = [
       {
         type: "intake",
-        date: firstTimer.created_at,
+        date: firstTimer.form_submitted_at || firstTimer.created_at,
         title: "First timer form submitted",
         description: `${firstTimer.full_name} was received into the platform.`,
       },
