@@ -15,8 +15,6 @@ yarn-error.log*
 pnpm-debug.log*
 
 # env files
-.env
-.env.local
 .env.development.local
 .env.test.local
 .env.production.local
@@ -37,10 +35,13 @@ alpha-evangelism-service-account.json
 Thumbs.db
 
 # editor
-.vscode/
 .idea/
 *.swp
 *.swo
 
 # typescript
 *.tsbuildinfo
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+config.bat

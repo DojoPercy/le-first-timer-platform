@@ -1,15 +1,145 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateReportBlob, type ReportData } from '@/lib/utils/pdf-generator';
 import { createClient } from '@/lib/supabase/server';
+import type { FirstTimer } from '@/lib/types';
 import { z } from 'zod';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 
-const generateReportSchema = z.object({
-  period: z.string(),
-  branchId: z.string().optional(),
-  includeFirstTimers: z.boolean().default(true),
-  includeFollowups: z.boolean().default(true),
-  format: z.enum(['pdf', 'csv']).default('pdf'),
-});
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+
+const generateReportSchema = z
+  .object({
+    period: z.string(),
+    reportType: z.enum(['weekly', 'monthly', 'yearly']),
+    year: z.number(),
+    month: z.number().optional(),
+    week: z.number().optional(),
+    includeFirstTimers: z.boolean().default(true),
+    includeFollowups: z.boolean().default(true),
+    format: z.enum(['pdf', 'csv']).default('pdf'),
+    branchId: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.reportType === 'weekly') {
+      if (data.month == null || data.month < 1 || data.month > 12) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Month is required for weekly reports (week is interpreted within that month)',
+          path: ['month'],
+        });
+      }
+      if (data.week == null || data.week < 1 || data.week > 5) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Week must be between 1 and 5 for weekly reports',
+          path: ['week'],
+        });
+      }
+    }
+    if (data.reportType === 'monthly' && (data.month == null || data.month < 1 || data.month > 12)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Month is required for monthly reports',
+        path: ['month'],
+      });
+    }
+  });
+
+/**
+ * Weekly = week index 1–5 within the selected calendar month (7-day bands: 1–7, 8–14, …, 29–end).
+ * Monthly/yearly use full calendar bounds in UTC.
+ */
+function getDateRange(
+  reportType: 'weekly' | 'monthly' | 'yearly',
+  year: number,
+  month?: number,
+  week?: number
+) {
+  if (reportType === 'weekly') {
+    const safeMonth = Math.min(Math.max(month ?? 1, 1), 12);
+    const safeWeek = Math.min(Math.max(week ?? 1, 1), 5);
+    const daysInMonth = new Date(Date.UTC(year, safeMonth, 0)).getUTCDate();
+    const startDay = (safeWeek - 1) * 7 + 1;
+    const endDay = Math.min(safeWeek * 7, daysInMonth);
+    const startDate = new Date(Date.UTC(year, safeMonth - 1, startDay, 0, 0, 0, 0));
+    const endDate = new Date(Date.UTC(year, safeMonth - 1, endDay, 23, 59, 59, 999));
+    return { startDate, endDate };
+  }
+
+  if (reportType === 'monthly') {
+    const safeMonth = Math.min(Math.max(month ?? 1, 1), 12);
+    const startDate = new Date(Date.UTC(year, safeMonth - 1, 1, 0, 0, 0, 0));
+    const endDate = new Date(Date.UTC(year, safeMonth, 0, 23, 59, 59, 999));
+    return { startDate, endDate };
+  }
+
+  const startDate = new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0));
+  const endDate = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
+  return { startDate, endDate };
+}
+
+/**
+ * Effective "first timer date" for reporting: form submission / visit time when set, otherwise when the row was created.
+ */
+async function fetchFirstTimersInDateRange(
+  supabase: SupabaseServerClient,
+  startDateStr: string,
+  endDateStr: string,
+  branchId?: string
+) {
+  let withVisitDate = supabase
+    .from('first_timers')
+    .select('*')
+    .not('form_submitted_at', 'is', null)
+    .gte('form_submitted_at', startDateStr)
+    .lte('form_submitted_at', endDateStr)
+    .order('created_at', { ascending: false });
+
+  let createdOnly = supabase
+    .from('first_timers')
+    .select('*')
+    .is('form_submitted_at', null)
+    .gte('created_at', startDateStr)
+    .lte('created_at', endDateStr)
+    .order('created_at', { ascending: false });
+
+  if (branchId) {
+    withVisitDate = withVisitDate.eq('branch_id', branchId);
+    createdOnly = createdOnly.eq('branch_id', branchId);
+  }
+
+  const [visitRows, createdRows] = await Promise.all([withVisitDate, createdOnly]);
+
+  if (visitRows.error) return { data: null, error: visitRows.error };
+  if (createdRows.error) return { data: null, error: createdRows.error };
+
+  const byId = new Map<string, FirstTimer>();
+  for (const row of visitRows.data ?? []) {
+    byId.set(row.id, row as FirstTimer);
+  }
+  for (const row of createdRows.data ?? []) {
+    byId.set(row.id, row as FirstTimer);
+  }
+
+  const merged = Array.from(byId.values());
+  merged.sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
+  return { data: merged, error: null };
+}
+
+async function getLogoDataUrl() {
+  try {
+    const logoPath = path.join(process.cwd(), 'public', 'logo.png');
+    const logoBuffer = await readFile(logoPath);
+    return `data:image/png;base64,${logoBuffer.toString('base64')}`;
+  } catch (error) {
+    console.error('Failed to load logo for PDF branding:', error);
+    return undefined;
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,11 +162,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Fetch report data
+    const { startDate, endDate } = getDateRange(
+      validatedData.reportType,
+      validatedData.year,
+      validatedData.month,
+      validatedData.week
+    );
+
+    // Format dates for database queries
+    const startDateStr = startDate.toISOString();
+    const endDateStr = endDate.toISOString();
+
+    // Fetch report data for the specified period
     const reportData: ReportData = {
       period: validatedData.period,
       branchName,
       generatedAt: new Date(),
+      logoDataUrl: validatedData.format === 'pdf' ? await getLogoDataUrl() : undefined,
       stats: {
         totalFirstTimers: 0,
         assignedFirstTimers: 0,
@@ -57,13 +199,14 @@ export async function POST(request: NextRequest) {
       followups: [],
     };
 
-    // Fetch first timers data
+    // First timers: filter by visit/intake date when present (form_submitted_at), else record created_at
     if (validatedData.includeFirstTimers) {
-      const { data: firstTimers, error: firstTimersError } = await supabase
-        .from('first_timers')
-        .select('*')
-        .eq('branch_id', validatedData.branchId || null)
-        .order('created_at', { ascending: false });
+      const { data: firstTimers, error: firstTimersError } = await fetchFirstTimersInDateRange(
+        supabase,
+        startDateStr,
+        endDateStr,
+        validatedData.branchId
+      );
 
       if (firstTimersError) {
         console.error('Error fetching first timers:', firstTimersError);
@@ -129,13 +272,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Fetch follow-ups data
+    // Fetch follow-ups data for the period
     if (validatedData.includeFollowups) {
-      const { data: followups, error: followupsError } = await supabase
+      let followupsQuery = supabase
         .from('followups')
         .select('*')
-        .eq('branch_id', validatedData.branchId || null)
+        .gte('date', startDateStr)
+        .lte('date', endDateStr)
         .order('created_at', { ascending: false });
+      
+      if (validatedData.branchId) {
+        followupsQuery = followupsQuery.eq('branch_id', validatedData.branchId);
+      }
+
+      const { data: followups, error: followupsError } = await followupsQuery;
 
       if (followupsError) {
         console.error('Error fetching followups:', followupsError);
@@ -150,28 +300,29 @@ export async function POST(request: NextRequest) {
         reportData.stats.totalFollowups = followups.length;
         reportData.stats.followupsContacted = followups.filter(f => f.status === 'Contacted').length;
         
-        // Calculate weekly completion rate
-        const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-        
-        const weeklyFollowups = followups.filter(f => new Date(f.date) >= oneWeekAgo);
-        const uniqueFirstTimersThisWeek = new Set(weeklyFollowups.map(f => f.first_timer_id)).size;
+        // Calculate completion rate for the period
+        const uniqueFirstTimersInPeriod = new Set(followups.map(f => f.first_timer_id)).size;
         const totalAssignedFirstTimers = reportData.stats.assignedFirstTimers;
         
-        reportData.stats.followedUpThisWeekCount = uniqueFirstTimersThisWeek;
-        reportData.stats.pendingFollowupThisWeekCount = Math.max(totalAssignedFirstTimers - uniqueFirstTimersThisWeek, 0);
+        reportData.stats.followedUpThisWeekCount = uniqueFirstTimersInPeriod;
+        reportData.stats.pendingFollowupThisWeekCount = Math.max(totalAssignedFirstTimers - uniqueFirstTimersInPeriod, 0);
         reportData.stats.completionRate = totalAssignedFirstTimers > 0 
-          ? Math.round((uniqueFirstTimersThisWeek / totalAssignedFirstTimers) * 100) 
+          ? Math.round((uniqueFirstTimersInPeriod / totalAssignedFirstTimers) * 100) 
           : 0;
       }
     }
 
-    // Fetch caller performance data
-    const { data: callers, error: callersError } = await supabase
+    // Fetch caller performance data for the period
+    let callersQuery = supabase
       .from('callers')
       .select('*')
-      .eq('role', 'caller')
-      .eq('branch_id', validatedData.branchId || null);
+      .eq('role', 'caller');
+
+    if (validatedData.branchId) {
+      callersQuery = callersQuery.eq('branch_id', validatedData.branchId);
+    }
+
+    const { data: callers, error: callersError } = await callersQuery;
 
     if (callersError) {
       console.error('Error fetching callers:', callersError);
@@ -183,20 +334,20 @@ export async function POST(request: NextRequest) {
 
     if (callers) {
       reportData.callerPerformance = callers.map(caller => {
+        // Get first timers assigned to this caller in the period
         const callerFirstTimers = reportData.firstTimers.filter(ft => ft.assigned_caller_id === caller.id);
+        
+        // Get follow-ups by this caller in the period
         const callerFollowups = reportData.followups.filter(f => f.caller_id === caller.id);
         
-        // Calculate weekly follow-ups for this caller
-        const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-        const weeklyFollowups = callerFollowups.filter(f => new Date(f.date) >= oneWeekAgo);
-        const uniqueFirstTimersThisWeek = new Set(weeklyFollowups.map(f => f.first_timer_id)).size;
+        // Calculate unique first timers followed up by this caller in the period
+        const uniqueFirstTimersFollowedUp = new Set(callerFollowups.map(f => f.first_timer_id)).size;
         
         return {
           name: caller.name,
           assigned: callerFirstTimers.length,
-          followedUpThisWeek: uniqueFirstTimersThisWeek,
-          pendingThisWeek: Math.max(callerFirstTimers.length - uniqueFirstTimersThisWeek, 0),
+          followedUpThisWeek: uniqueFirstTimersFollowedUp,
+          pendingThisWeek: Math.max(callerFirstTimers.length - uniqueFirstTimersFollowedUp, 0),
           fullyJoined: callerFirstTimers.filter(ft => ft.followup_outcome_status === 'fully_joined').length,
         };
       }).filter(cp => cp.assigned > 0); // Only include callers with assignments
@@ -219,7 +370,7 @@ export async function POST(request: NextRequest) {
       return new NextResponse(csvData, {
         headers: {
           'Content-Type': 'text/csv',
-          'Content-Disposition': `attachment; filename="teleporting-report-${validatedData.period.replace(/\s+/g, '-').toLowerCase()}.csv"`,
+          'Content-Disposition': `attachment; filename="telepastoring-report-${validatedData.period.replace(/\s+/g, '-').toLowerCase()}.csv"`,
         },
       });
     }

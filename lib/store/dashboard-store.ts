@@ -218,13 +218,7 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
           : null;
       if (!isAutoSync) {
         if (data.count > 0) {
-          const labels = [
-            newLabel,
-            data.autoAssigned
-              ? `${data.autoAssigned} assigned to callers`
-              : null,
-          ].filter(Boolean);
-          toast.success(`${labels.join(" • ")} synced successfully`, {
+          toast.success(`${newLabel} synced successfully`, {
             id: "sync-sheets",
           });
         } else {
@@ -235,7 +229,7 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
       } else if (data.count > 0) {
         toast.success(`${newLabel} synced automatically`, { duration: 4000 });
       }
-      if (data.count > 0 || data.autoAssigned > 0) await get().fetchStats();
+      if (data.count > 0) await get().fetchStats();
     } catch (error) {
       console.error("Sync failed:", error);
       if (!isAutoSync) {

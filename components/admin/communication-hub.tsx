@@ -12,9 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
-import { Phone, MessageSquare, Download, Send, Users, FileText, CheckCircle, AlertCircle } from "lucide-react";
-import { generateMonthlyReport } from "@/lib/utils/pdf-generator";
-import { defaultMessageTemplates, extractTemplateVariables } from "@/lib/utils/arkesel-sms";
+import { MessageSquare, Download, Send, Users, FileText, AlertCircle } from "lucide-react";
+import { defaultMessageTemplates } from "@/lib/utils/arkesel-sms";
 
 interface MessageTemplate {
   name: string;
@@ -23,21 +22,18 @@ interface MessageTemplate {
   variables: string[];
 }
 
-interface Recipient {
-  phone: string;
-  name: string;
-  variables?: Record<string, string>;
-}
-
 export default function CommunicationHub() {
   const [activeTab, setActiveTab] = useState("sms");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSendingSMS, setIsSendingSMS] = useState(false);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<MessageTemplate | null>(null);
   const [customMessage, setCustomMessage] = useState("");
-  const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [phoneNumbers, setPhoneNumbers] = useState("");
-  const [reportPeriod, setReportPeriod] = useState("");
   const [reportFormat, setReportFormat] = useState<"pdf" | "csv">("pdf");
+  const [reportType, setReportType] = useState<"weekly" | "monthly" | "yearly">("monthly");
+  const [reportYear, setReportYear] = useState(new Date().getFullYear());
+  const [reportMonth, setReportMonth] = useState(new Date().getMonth() + 1);
+  const [reportWeek, setReportWeek] = useState(Math.ceil(new Date().getDate() / 7));
   const [includeFirstTimers, setIncludeFirstTimers] = useState(true);
   const [includeFollowups, setIncludeFollowups] = useState(true);
   const [messageVariables, setMessageVariables] = useState<Record<string, string>>({});
@@ -96,7 +92,7 @@ export default function CommunicationHub() {
       }
     }
 
-    setIsLoading(true);
+    setIsSendingSMS(true);
     
     try {
       const phones = phoneNumbers.split(',').map(p => p.trim()).filter(p => p);
@@ -128,52 +124,75 @@ export default function CommunicationHub() {
     } catch (error) {
       toast.error("Failed to send message");
     } finally {
-      setIsLoading(false);
+      setIsSendingSMS(false);
     }
   };
 
-  const handleGenerateReport = async () => {
-    if (!reportPeriod.trim()) {
-      toast.error("Please enter a report period");
-      return;
+  const getPeriodString = () => {
+    if (reportType === "weekly") {
+      const monthName = new Date(reportYear, reportMonth - 1).toLocaleDateString("en-US", {
+        month: "long",
+      });
+      return `Week ${reportWeek}, ${monthName} ${reportYear}`;
     }
+    if (reportType === "monthly") {
+      const monthName = new Date(reportYear, reportMonth - 1).toLocaleDateString("en-US", { month: "long" });
+      return `${monthName} ${reportYear}`;
+    }
+    return `${reportYear}`;
+  };
 
-    setIsLoading(true);
-    
+  const handleGenerateReport = async () => {
+    setIsGeneratingReport(true);
     try {
+      const periodString = getPeriodString();
+
       const response = await fetch('/api/reports/generate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          period: reportPeriod,
+          period: periodString,
+          reportType,
+          year: reportYear,
+          month: reportType === "monthly" || reportType === "weekly" ? reportMonth : undefined,
+          week: reportType === "weekly" ? reportWeek : undefined,
           includeFirstTimers,
           includeFollowups,
           format: reportFormat,
         }),
       });
 
-      if (response.ok) {
+      if (!response.ok) {
+        throw new Error('Failed to generate report');
+      }
+
+      if (reportFormat === 'pdf') {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `telepastoring-report-${reportPeriod.replace(/\s+/g, '-').toLowerCase()}.${reportFormat}`;
+        a.download = `telepastoring-report-${periodString.replace(/\s+/g, '-').toLowerCase()}.pdf`;
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
-        
-        toast.success(`Report generated and downloaded successfully`);
       } else {
-        const error = await response.json();
-        toast.error(error.error || "Failed to generate report");
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `telepastoring-report-${periodString.replace(/\s+/g, '-').toLowerCase()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
       }
+
+      toast.success(`${reportFormat.toUpperCase()} report generated successfully!`);
     } catch (error) {
-      toast.error("Failed to generate report");
+      toast.error(error instanceof Error ? error.message : 'Failed to generate report');
     } finally {
-      setIsLoading(false);
+      setIsGeneratingReport(false);
     }
   };
 
@@ -365,10 +384,10 @@ export default function CommunicationHub() {
 
                 <Button
                   onClick={handleSendSMS}
-                  disabled={isLoading || !phoneNumbers.trim() || !customMessage.trim()}
+                  disabled={isSendingSMS || !phoneNumbers.trim() || !customMessage.trim()}
                   className="w-full"
                 >
-                  {isLoading ? (
+                  {isSendingSMS ? (
                     <>
                       <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                       Sending...
@@ -397,29 +416,101 @@ export default function CommunicationHub() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
+              {/* Report Type Selection */}
+              <div
+                className={`grid gap-4 ${reportType === "weekly" ? "md:grid-cols-2 lg:grid-cols-4" : "md:grid-cols-3"}`}
+              >
                 <div className="space-y-2">
-                  <Label htmlFor="period">Report Period</Label>
-                  <Input
-                    id="period"
-                    placeholder="e.g., November 2024, Week 45"
-                    value={reportPeriod}
-                    onChange={(e) => setReportPeriod(e.target.value)}
-                  />
+                  <Label htmlFor="reportType">Report Type</Label>
+                  <Select value={reportType} onValueChange={(value: "weekly" | "monthly" | "yearly") => setReportType(value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select report type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="weekly">Weekly Report</SelectItem>
+                      <SelectItem value="monthly">Monthly Report</SelectItem>
+                      <SelectItem value="yearly">Yearly Report</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="format">Report Format</Label>
-                  <Select value={reportFormat} onValueChange={(value: "pdf" | "csv") => setReportFormat(value)}>
+                  <Label htmlFor="year">Year</Label>
+                  <Select value={reportYear.toString()} onValueChange={(value) => setReportYear(parseInt(value))}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="pdf">PDF Report (Recommended)</SelectItem>
-                      <SelectItem value="csv">CSV Data Export</SelectItem>
+                      {Array.from({ length: 5 }, (_, i) => {
+                        const year = new Date().getFullYear() - i;
+                        return <SelectItem key={year} value={year.toString()}>{year}</SelectItem>;
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
+
+                {(reportType === "monthly" || reportType === "weekly") && (
+                  <div className="space-y-2">
+                    <Label htmlFor="reportMonth">Month</Label>
+                    <Select
+                      value={reportMonth.toString()}
+                      onValueChange={(value) => setReportMonth(parseInt(value))}
+                    >
+                      <SelectTrigger id="reportMonth">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">January</SelectItem>
+                        <SelectItem value="2">February</SelectItem>
+                        <SelectItem value="3">March</SelectItem>
+                        <SelectItem value="4">April</SelectItem>
+                        <SelectItem value="5">May</SelectItem>
+                        <SelectItem value="6">June</SelectItem>
+                        <SelectItem value="7">July</SelectItem>
+                        <SelectItem value="8">August</SelectItem>
+                        <SelectItem value="9">September</SelectItem>
+                        <SelectItem value="10">October</SelectItem>
+                        <SelectItem value="11">November</SelectItem>
+                        <SelectItem value="12">December</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {reportType === "weekly" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="reportWeek">Week of month</Label>
+                    <Select
+                      value={reportWeek.toString()}
+                      onValueChange={(value) => setReportWeek(parseInt(value))}
+                    >
+                      <SelectTrigger id="reportWeek">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">Week 1 (days 1–7)</SelectItem>
+                        <SelectItem value="2">Week 2 (days 8–14)</SelectItem>
+                        <SelectItem value="3">Week 3 (days 15–21)</SelectItem>
+                        <SelectItem value="4">Week 4 (days 22–28)</SelectItem>
+                        <SelectItem value="5">Week 5 (remaining days)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+
+              {/* Report Format */}
+              <div className="space-y-2">
+                <Label htmlFor="format">Report Format</Label>
+                <Select value={reportFormat} onValueChange={(value: "pdf" | "csv") => setReportFormat(value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pdf">PDF Report (Recommended)</SelectItem>
+                    <SelectItem value="csv">CSV Data Export</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-3">
@@ -451,6 +542,8 @@ export default function CommunicationHub() {
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                 <h4 className="font-medium text-slate-900 mb-2">Report Preview</h4>
                 <div className="text-sm text-slate-600 space-y-1">
+                  <p className="font-medium text-slate-800">Period: {getPeriodString()}</p>
+                  <p className="font-medium text-slate-800">Format: {reportFormat.toUpperCase()}</p>
                   <p>• Executive Summary with key metrics</p>
                   <p>• Top performing cells and inviters</p>
                   <p>• Caller performance and accountability</p>
@@ -461,11 +554,11 @@ export default function CommunicationHub() {
 
               <Button
                 onClick={handleGenerateReport}
-                disabled={isLoading || !reportPeriod.trim()}
+                disabled={isGeneratingReport}
                 className="w-full"
                 size="lg"
               >
-                {isLoading ? (
+                {isGeneratingReport ? (
                   <>
                     <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                     Generating...

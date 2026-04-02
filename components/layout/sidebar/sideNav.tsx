@@ -2,7 +2,7 @@
 
 import React from "react";
 import { usePathname } from "next/navigation";
-import { Home, Heart, Users, CheckCircle, User, FileText, TrendingUp } from "lucide-react";
+import { Home, Heart, Users, CheckCircle, User, FileText, TrendingUp, BarChart3 } from "lucide-react";
 import SideNavHeader from "./SideNavHeader";
 import SideNavLink from "./SideNavLink";
 import SideNavFooter from "./SideNavFooter";
@@ -24,6 +24,7 @@ const navItemsByRole = {
     { title: "First Timers", icon: Heart, url: "/admin/first-timers" },
     { title: "Users", icon: Users, url: "/admin/users" },
     { title: "Follow-ups", icon: CheckCircle, url: "/admin/followups" },
+    { title: "Follow-ups Summary", icon: BarChart3, url: "/admin/followups-summary" },
     { title: "Reports", icon: FileText, url: "/admin/reports" },
     { title: "Profile", icon: User, url: "/admin/profile" },
   ],

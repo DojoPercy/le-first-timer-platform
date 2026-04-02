@@ -6,6 +6,7 @@ export interface ReportData {
   period: string;
   branchName: string;
   generatedAt: Date;
+  logoDataUrl?: string;
   stats: {
     totalFirstTimers: number;
     assignedFirstTimers: number;
@@ -35,6 +36,7 @@ export interface ReportData {
 export class PDFReportGenerator {
   private doc: jsPDF;
   private pageHeight: number;
+  private pageWidth: number;
   private currentY: number;
   private margin: number = 20;
 
@@ -45,6 +47,7 @@ export class PDFReportGenerator {
       format: 'a4'
     });
     this.pageHeight = this.doc.internal.pageSize.height;
+    this.pageWidth = this.doc.internal.pageSize.width;
     this.currentY = this.margin;
   }
 
@@ -60,36 +63,52 @@ export class PDFReportGenerator {
   }
 
   private addHeader(reportData: ReportData): void {
-    // Church branding header
+    // Branded header background
     this.doc.setFillColor(18, 29, 85); // #121D55
-    this.doc.rect(0, 0, 210, 40, 'F');
-    
-    // Title
+    this.doc.rect(0, 0, this.pageWidth, 44, 'F');
+
+    // Logo container
+    this.doc.setFillColor(255, 255, 255);
+    this.doc.roundedRect(this.margin, 10, 48, 24, 2, 2, 'F');
+
+    // App logo
+    if (reportData.logoDataUrl) {
+      try {
+        this.doc.addImage(reportData.logoDataUrl, 'PNG', this.margin + 2, 12, 44, 20);
+      } catch {
+        // Logo rendering should not block report generation.
+      }
+    }
+
+    // App and report title
     this.doc.setTextColor(255, 255, 255);
-    this.doc.setFontSize(24);
+    this.doc.setFontSize(16);
     this.doc.setFont('helvetica', 'bold');
-    this.doc.text('TELEPASTORING DEPARTMENT', this.margin, 25);
-    
-    // Subtitle
-    this.doc.setFontSize(14);
+    this.doc.text('First Timer Platform', 76, 20);
+
+    this.doc.setFontSize(13);
     this.doc.setFont('helvetica', 'normal');
-    this.doc.text('Monthly Report', this.margin, 32);
-    
-    // Branch and period info
+    this.doc.text('Telepastoring Department Report', 76, 29);
+
+    this.doc.setFontSize(10);
+    this.doc.text(`Period: ${reportData.period}`, 76, 36);
+
+    // Meta block
     this.doc.setTextColor(0, 0, 0);
-    this.doc.setFontSize(12);
-    this.currentY = 50;
-    
+    this.doc.setFontSize(11);
+    this.currentY = 56;
+
     this.doc.setFont('helvetica', 'bold');
     this.doc.text(`Branch: ${reportData.branchName}`, this.margin, this.currentY);
     this.currentY += 8;
-    
-    this.doc.text(`Period: ${reportData.period}`, this.margin, this.currentY);
-    this.currentY += 8;
-    
+
     this.doc.setFont('helvetica', 'normal');
-    this.doc.text(`Generated: ${reportData.generatedAt.toLocaleDateString()}`, this.margin, this.currentY);
-    this.currentY += 15;
+    this.doc.text(`Generated: ${reportData.generatedAt.toLocaleString()}`, this.margin, this.currentY);
+    this.currentY += 12;
+
+    this.doc.setDrawColor(220, 225, 235);
+    this.doc.line(this.margin, this.currentY, this.pageWidth - this.margin, this.currentY);
+    this.currentY += 8;
   }
 
   private addSection(title: string): void {
@@ -154,14 +173,14 @@ export class PDFReportGenerator {
   }
 
   private addTable(headers: string[], data: string[][]): void {
-    this.checkPageBreak(20 + (data.length * 8));
-    
-    const tableWidth = 170;
+    const tableWidth = this.pageWidth - this.margin * 2;
     const columnWidth = tableWidth / headers.length;
+    const rowHeight = 8;
     
     // Header row
+    this.checkPageBreak(20);
     this.doc.setFillColor(240, 240, 240);
-    this.doc.rect(this.margin, this.currentY, tableWidth, 8, 'F');
+    this.doc.rect(this.margin, this.currentY, tableWidth, rowHeight, 'F');
     
     this.doc.setTextColor(0, 0, 0);
     this.doc.setFont('helvetica', 'bold');
@@ -171,21 +190,24 @@ export class PDFReportGenerator {
       this.doc.text(header, this.margin + (index * columnWidth) + 2, this.currentY + 5);
     });
     
-    this.currentY += 8;
+    this.currentY += rowHeight;
     
     // Data rows
     this.doc.setFont('helvetica', 'normal');
     data.forEach((row, rowIndex) => {
+      this.checkPageBreak(rowHeight + 2);
       if (rowIndex % 2 === 0) {
         this.doc.setFillColor(250, 250, 250);
-        this.doc.rect(this.margin, this.currentY, tableWidth, 8, 'F');
+        this.doc.rect(this.margin, this.currentY, tableWidth, rowHeight, 'F');
       }
       
       row.forEach((cell, cellIndex) => {
-        this.doc.text(cell, this.margin + (cellIndex * columnWidth) + 2, this.currentY + 5);
+        const maxChars = Math.max(Math.floor((columnWidth - 4) / 1.7), 6);
+        const safeCell = cell.length > maxChars ? `${cell.slice(0, maxChars - 1)}...` : cell;
+        this.doc.text(safeCell, this.margin + (cellIndex * columnWidth) + 2, this.currentY + 5);
       });
       
-      this.currentY += 8;
+      this.currentY += rowHeight;
     });
     
     this.currentY += 10;
@@ -268,9 +290,9 @@ export class PDFReportGenerator {
     this.doc.setFont('helvetica', 'normal');
     
     const summary = [
-      `This month, the Telepastoring Department processed ${reportData.stats.totalFirstTimers} first timers.`,
-      `${reportData.stats.fullyJoinedCount} first timers have fully joined the church (${Math.round((reportData.stats.fullyJoinedCount / reportData.stats.totalFirstTimers) * 100)}% conversion rate).`,
-      `${reportData.stats.followedUpThisWeekCount} follow-up calls were completed this week with a ${reportData.stats.completionRate}% completion rate.`,
+      `During ${reportData.period}, the Telepastoring Department processed ${reportData.stats.totalFirstTimers} first timers.`,
+      `${reportData.stats.fullyJoinedCount} first timers fully joined the church (${reportData.stats.totalFirstTimers > 0 ? Math.round((reportData.stats.fullyJoinedCount / reportData.stats.totalFirstTimers) * 100) : 0}% conversion rate).`,
+      `${reportData.stats.followedUpThisWeekCount} follow-up calls were completed in this period with a ${reportData.stats.completionRate}% completion rate.`,
       `${reportData.stats.unassignedFirstTimers} first timers are still waiting for caller assignment.`,
     ];
     
@@ -348,6 +370,8 @@ export class PDFReportGenerator {
       unit: 'mm',
       format: 'a4'
     });
+    this.pageHeight = this.doc.internal.pageSize.height;
+    this.pageWidth = this.doc.internal.pageSize.width;
     this.currentY = this.margin;
 
     // Build report

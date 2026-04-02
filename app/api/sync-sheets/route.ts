@@ -3,10 +3,6 @@ import { google, sheets_v4 } from "googleapis";
 import { promises as fs } from "fs";
 import path from "path";
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  assignAllUnassignedFirstTimers,
-  getLeastLoadedCaller,
-} from "@/lib/utils/assign-caller";
 import { getCurrentActor, isAdminLike } from "@/lib/auth/server";
 
 type FirstTimerIntegration = {
@@ -227,10 +223,8 @@ async function syncSingleBranch(
     const existing = existingByKey.get(key);
 
     if (!existing) {
-      const assignedCallerId = await getLeastLoadedCaller(integration.branch_id);
-      if (assignedCallerId) {
-        payload.assigned_caller_id = assignedCallerId;
-      }
+      // New first timers are NOT automatically assigned
+      // Admin must click "Redistribute assignments" to assign them
 
       const { error } = await adminClient.from("first_timers").insert(payload);
       if (error) {
@@ -264,7 +258,8 @@ async function syncSingleBranch(
     }
   }
 
-  const assignmentResult = await assignAllUnassignedFirstTimers(integration.branch_id);
+  // Removed automatic assignment - first timers remain unassigned
+  // until admin manually clicks "Redistribute assignments"
 
   await adminClient
     .from("branch_integrations")
@@ -279,7 +274,7 @@ async function syncSingleBranch(
     branchId: integration.branch_id,
     inserted,
     updated,
-    autoAssigned: assignmentResult.assigned,
+    autoAssigned: 0, // Always 0 since we removed automatic assignment
     errors,
   };
 }
@@ -314,7 +309,7 @@ export async function POST(request: NextRequest) {
       message: "First timer sync completed.",
       count: results.reduce((sum, item) => sum + item.inserted, 0),
       updated: results.reduce((sum, item) => sum + item.updated, 0),
-      autoAssigned: results.reduce((sum, item) => sum + item.autoAssigned, 0),
+      autoAssigned: 0, // Always 0 since we removed automatic assignment
       branchResults: results,
       errors: results.flatMap((item) => item.errors).slice(0, 10),
     });
